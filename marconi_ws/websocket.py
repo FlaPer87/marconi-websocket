@@ -28,16 +28,12 @@ class MarconiWebsocket(websocket.WebSocket):
 
         try:
             data = json.loads(unicode(message.data))
-        except Exception as exc:
+        except Exception:
             print(message.data)
 
         body = data.get('body', '')
         if isinstance(body, six.text_type):
             body = body.encode('utf-8')
-
-        headers = data.get('headers', {})
-
-        body = io.BytesIO(body)
 
         env = self.environ.copy()
         env.update({'PATH_INFO': data['path'],
@@ -46,18 +42,29 @@ class MarconiWebsocket(websocket.WebSocket):
 
                     # NOTE(flaper87): Body is optional. If present
                     # it has to be a serialized json.
-                    'wsgi.input': body,
+                    'wsgi.input': io.BytesIO(body),
 
+                    # NOTE(flaper87): Accept is a required
+                    # header for the wsgi API. We won't make it
+                    # so for the websocket transport.
                     'HTTP_ACCEPT': 'application/json'})
 
+        # NOTE(flaper87): Copy all HTTP headers to
+        # the wsgi environment and make the wsgi transport
+        # happy.
+        headers = data.get('headers', {})
         for header, value in headers.items():
             env['HTTP_' + header.upper()] = value
 
         req = Request(env)
         resp = Response()
 
-        responder, params, na_responder = self.falcon_app._get_responder(req.path, req.method)
+        get_responder = self.falcon_app._get_responder
+        responder, params, na_responder = get_responder(req.path, req.method)
         responder(req, resp, **params)
+
+        # NOTE(flaper87): Send the response back to the
+        # client.
         self.send(json.dumps({'headers': resp._headers,
                               'status': resp.status,
                               'body': resp.body_encoded}))
