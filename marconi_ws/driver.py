@@ -20,7 +20,8 @@ from ws4py.server import wsgiutils
 import marconi.openstack.common.log as logging
 from marconi.queues import transport
 from marconi.queues.transport import validation
-from marconi.queues.transport.wsgi.public import driver
+from marconi.queues.transport.wsgi.public import driver as pub_driver
+from marconi.queues.transport.wsgi.public import driver as adm_driver
 from marconi_ws import websocket
 
 
@@ -46,9 +47,18 @@ class Driver(transport.DriverBase):
         self._transport_conf = self._conf[_OPTIONS_GROUP]
         self._validate = validation.Validator(self._conf)
 
-        # FIXME(flaper87): Dirty HACK!! Just a POC
-        pub_driver = driver.Driver(conf, storage, cache, control)
-        websocket.MarconiWebsocket.falcon_app = pub_driver.app
+        # NOTE(flaper87): if admin_mode is enabled, use the
+        # admin API instead.
+
+        # FIXME(flaper87): This will stick around until the
+        # new API layer is ready. At some point, we won't need
+        # to proxy the wsgi transport anymore.
+        if self.__conf.admin_mode:
+            driver = pub_driver.Driver(conf, storage, cache, control)
+        else:
+            driver = adm_driver.Driver(conf, storage, cache, control)
+
+        websocket.MarconiWebsocket.falcon_app = driver.app
         self.app = wsgiutils.WebSocketWSGIApplication(handler_cls=websocket.MarconiWebsocket)
 
     def listen(self):
